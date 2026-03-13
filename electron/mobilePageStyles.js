@@ -231,9 +231,11 @@ body {
 }
 .status-step .dot.inactive { background: rgba(255,255,255,0.08); color: #6C6C8A; }
 .status-step .dot.active { background: #6C5CE7; color: white; animation: pulse 2s infinite; }
+.status-step .dot.ready { background: #00B894; color: white; box-shadow: 0 0 16px rgba(0,184,148,0.5); transform: scale(1.1); animation: none; }
 .status-step .dot.completed { background: #00B894; color: white; }
 .status-step .label { font-size: 10px; font-weight: 600; color: #A0A0C0; }
 .status-step .label.active { color: #A29BFE; }
+.status-step .label.ready { color: #00B894; font-weight: 700; }
 .status-step .label.completed { color: #00B894; }
 
 /* Name Input */

@@ -316,8 +316,13 @@ function updateStatusDisplay(status) {
       dot.className = 'dot completed';
       lbl.className = 'label completed';
     } else if (idx === currentIdx) {
-      dot.className = 'dot active';
-      lbl.className = 'label active';
+      if (step === 'ready') {
+        dot.className = 'dot ready';
+        lbl.className = 'label ready';
+      } else {
+        dot.className = 'dot active';
+        lbl.className = 'label active';
+      }
     } else {
       dot.className = 'dot inactive';
       lbl.className = 'label';
