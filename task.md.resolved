@@ -1,0 +1,69 @@
+# PıthCopy Self-Service Dönüşüm — Görev Listesi
+
+## Faz 0: Altyapı — İş/Sipariş Sistemi
+- [x] 1. Job veri modeli oluştur (jobId, queueNumber, customerName, files[], settings, status, timestamps, notes)
+- [x] 2. Job store sistemi kur (in-memory + disk persist) — [jobStore.js](file:///c:/Users/CASPER/Desktop/P%C4%B1thCopySolutoin/electron/jobStore.js)
+- [x] 3. Job durumu yönetimi (pending → approved → printing → ready → delivered)
+- [x] 4. SSE (Server-Sent Events) endpoint'i — gerçek zamanlı durum takibi
+- [x] 5. Sıra numarası üreteci (günlük reset, #001)
+
+## Faz 1: Mobil Upload Sayfası (uploadServer.js)
+- [x] 6. Yazdırma ayarları UI (kopya, renkli/SB, kağıt, yön, çift taraflı)
+- [x] 7. Sayfa aralığı seçici (başlangıç-bitiş sayfa veya "tümü")
+- [x] 8. Not/talimat alanı (serbest metin)
+- [x] 9. Her dosya için ayrı ayar seçme imkanı (per-file settings)
+- [x] 10. Toplu ayar uygulama (tüm dosyalara)
+- [x] 11. Yükleme sonrası dosya listesi — sil/yeni ekle
+- [x] 12. Sıra numarası gösterimi (yükleme sonrası)
+- [x] 13. Gerçek zamanlı durum takibi (SSE: bekleniyor → yazdırılıyor → hazır)
+- [x] 14. Fiyat tahmini gösterimi (canlı hesaplama)
+- [x] 15. Dosya önizleme/thumbnail gösterimi (resimler)
+- [x] 16. Basit düzenleme: PDF sayfa seçme (sayfa aralığı)
+- [x] 17. Basit düzenleme: Resim döndürme
+- [x] 18. Birden fazla resmi tek işe birleştirme
+- [x] 19. QR'sız alternatif: 4 haneli kısa erişim kodu
+
+## Faz 2: Çalışan Tarafı — Bildirimler
+- [x] 20. Sesli bildirim (Web Audio API ping sesi)
+- [x] 21. Windows masaüstü bildirimi (native Notification)
+- [x] 22. App içi toast/pop-up bildirimi
+
+## Faz 3: Çalışan — Bekleyen İşler Kuyruğu
+- [x] 23. "Bekleyen İşler" sayfası — [JobsView.jsx](file:///c:/Users/CASPER/Desktop/P%C4%B1thCopySolutoin/src/pages/JobsView.jsx)
+- [x] 24. İş kartları — müşteri adı, sıra no, dosya sayısı, ayarlar
+- [x] 25. Müşterinin seçtiği ayarlar önceden set edilmiş
+- [x] 26. Tek tıkla "Onayla & Yazdır" butonu
+- [x] 27. Hızlı yazıcı seçim dropdown'u
+- [x] 28. İş durumu güncelleme butonları
+- [x] 29. Müşteri notu ve sayfa aralığı gösterimi
+- [x] 30. Dosya önizleme çalışan tarafı
+
+## Faz 4: Fiyatlandırma Sistemi
+- [x] 31. Fiyat ayarları paneli — [SettingsView.jsx](file:///c:/Users/CASPER/Desktop/P%C4%B1thCopySolutoin/src/pages/SettingsView.jsx)
+- [x] 32. Fiyat hesaplama mantığı (kopya × sayfa × birim fiyat)
+- [x] 33. PDF sayfa sayısı otomatik algılama
+- [x] 34. İş emrinde toplam fiyat gösterimi
+
+## Faz 5: Gelişmiş Müşteri Deneyimi
+- [x] 35. Durum sorgulama sayfası (sıra numarasıyla) — `/status` sayfası
+- [x] 36. "Hazır" olunca müşteriye sayfa içi bildirim + vibrasyon
+- [x] 37. Akıllı ayar önerileri altyapısı (A3/renkli algılama temeli)
+- [x] 38. Müşteri profili/şablon kaydetme — [SettingsView.jsx](file:///c:/Users/CASPER/Desktop/P%C4%B1thCopySolutoin/src/pages/SettingsView.jsx)
+- [x] 39. Aynı dosya farklı ayarlarla birden fazla iş oluşturma
+- [x] 40. Toplu iş algılama altyapısı (10+ dosya)
+
+## Faz 6: Çoklu Yazıcı & Dashboard
+- [x] 41. Yazıcı listesi ve seçimi
+- [x] 42. Varsayılan yazıcı otomatik seçimi
+- [x] 43. Her iş emrine yazıcı atama
+
+## Faz 7: İstatistikler & Yönetim
+- [x] 44. Günlük istatistikler (iş sayısı, sayfa, gelir) — [StatsView.jsx](file:///c:/Users/CASPER/Desktop/P%C4%B1thCopySolutoin/src/pages/StatsView.jsx)
+- [x] 45. Müşteri geçmişi (kim ne kadar bastırdı)
+- [x] 46. Yoğun saat analizi (saat dağılımı grafiği)
+
+## Faz 8: Ek Özellikler
+- [x] 47. USB dosya import (algılama + hızlı import toast)
+- [x] 48. Eski dosyaları otomatik temizleme (7+ gün)
+- [x] 49. Finishing seçenekleri (zımbalama, delme, ciltleme)
+- [x] 50. "Hızlı İş" modu (QR'sız doğrudan yazdırma API'si)
