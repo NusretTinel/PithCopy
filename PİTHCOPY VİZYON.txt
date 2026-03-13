@@ -1,0 +1,1 @@
+Pithcopy vizyonu sadece bir qr kod ve yazıcıyla müşterilerin kendi çıktı alma işlemlerini tamamen kendi başlarına halledebilmeleri. Başında kimsenin durmasının gerekmemesi. Çıktı otomatı.
