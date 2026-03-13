@@ -1,77 +1,56 @@
 import React from 'react';
 import {
-    LayoutDashboard,
-    Printer,
-    Users,
-    QrCode,
-    Settings,
-    FolderOpen,
+    LayoutDashboard, Printer, Users, ClipboardList,
+    BarChart3, Settings,
 } from 'lucide-react';
 
 const navItems = [
-    { id: 'dashboard', label: 'Gösterge Paneli', icon: LayoutDashboard },
-    { id: 'print', label: 'Yazdır', icon: Printer },
-    { id: 'customers', label: 'Müşteriler', icon: Users },
+    { id: 'jobs', label: 'Bekleyen İşler', icon: ClipboardList, countKey: 'pendingJobCount' },
+    { id: 'print', label: 'Yazdır', icon: Printer, countKey: 'fileCount' },
+    { id: 'customers', label: 'Müşteriler', icon: Users, countKey: 'customerCount' },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'stats', label: 'İstatistikler', icon: BarChart3 },
+    { id: 'settings', label: 'Ayarlar', icon: Settings },
 ];
 
-function Sidebar({ currentPage, setCurrentPage, fileCount, queueCount, customerCount }) {
-    const getBadge = (id) => {
-        switch (id) {
-            case 'print':
-                return fileCount > 0 ? fileCount : null;
-            case 'customers':
-                return customerCount > 0 ? customerCount : null;
-            default:
-                return null;
-        }
-    };
+function Sidebar({ currentPage, setCurrentPage, fileCount, queueCount, customerCount, pendingJobCount }) {
+    const counts = { fileCount, queueCount, customerCount, pendingJobCount };
 
     return (
         <aside className="sidebar">
-            <div className="sidebar__header">
-                <div className="sidebar__title">Menü</div>
+            <div className="sidebar__brand">
+                <div className="sidebar__brand-icon">P</div>
+                <span className="sidebar__brand-name">PıthCopy</span>
             </div>
 
             <nav className="sidebar__nav">
                 {navItems.map((item) => {
+                    const isActive = currentPage === item.id;
+                    const count = item.countKey ? counts[item.countKey] : null;
                     const Icon = item.icon;
-                    const badge = getBadge(item.id);
+
                     return (
-                        <div
+                        <button
                             key={item.id}
-                            className={`sidebar__nav-item ${currentPage === item.id ? 'sidebar__nav-item--active' : ''
-                                }`}
+                            className={`sidebar__nav-item ${isActive ? 'sidebar__nav-item--active' : ''}`}
                             onClick={() => setCurrentPage(item.id)}
                         >
-                            <Icon className="sidebar__nav-icon" />
+                            <Icon size={18} className="sidebar__nav-icon" />
                             <span className="sidebar__nav-label">{item.label}</span>
-                            {badge !== null && <span className="sidebar__nav-badge">{badge}</span>}
-                        </div>
+                            {count > 0 && (
+                                <span className={`sidebar__nav-badge ${item.id === 'jobs' && count > 0 ? 'sidebar__nav-badge--alert' : ''}`}>
+                                    {count}
+                                </span>
+                            )}
+                        </button>
                     );
                 })}
-
-                <div className="sidebar__section-divider" />
-
-                <div className="sidebar__nav-item" onClick={() => setCurrentPage('print')}>
-                    <QrCode className="sidebar__nav-icon" />
-                    <span className="sidebar__nav-label">QR ile Dosya Al</span>
-                </div>
-
-                <div className="sidebar__nav-item" onClick={() => setCurrentPage('print')}>
-                    <FolderOpen className="sidebar__nav-icon" />
-                    <span className="sidebar__nav-label">Dosya Gezgini</span>
-                </div>
             </nav>
 
-            {/* Footer: version info */}
-            <div style={{
-                padding: '12px 16px',
-                borderTop: '1px solid rgba(255,255,255,0.06)',
-                fontSize: '11px',
-                color: 'var(--color-text-muted)',
-                textAlign: 'center',
-            }}>
-                PıthCopy v1.0.0
+            <div className="sidebar__footer">
+                <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', textAlign: 'center', padding: '8px' }}>
+                    PıthCopy v2.0
+                </div>
             </div>
         </aside>
     );

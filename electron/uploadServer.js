@@ -1,219 +1,163 @@
 /**
- * PıthCopy — Local Upload Server
- * 
- * Runs a local HTTP server that serves mobile-friendly file upload pages.
- * Two modes:
- * 1. Customer-specific QR → files go to that customer's folder
- * 2. General QR → uploader enters their name → auto-creates folder
+ * PıthCopy — Local Upload Server (Enhanced)
+ * Full self-service system with job management, SSE, price API, and rich mobile pages.
  */
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { networkInterfaces } = require('os');
+const { MOBILE_STYLES } = require('./mobilePageStyles');
+const { MOBILE_JS } = require('./mobilePageScript');
 
 let server = null;
 let uploadCallback = null;
+let jobStoreRef = null; // reference to jobStore module
 
 function getLocalIP() {
   const nets = networkInterfaces();
   for (const name of Object.keys(nets)) {
     for (const net of nets[name]) {
-      if (net.family === 'IPv4' && !net.internal) {
-        return net.address;
-      }
+      if (net.family === 'IPv4' && !net.internal) return net.address;
     }
   }
   return '127.0.0.1';
 }
 
-// ─── Common styles (shared between both pages) ─────────
-const COMMON_STYLES = `
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Inter', sans-serif;
-      background: linear-gradient(135deg, #0F0F23 0%, #1A1A35 50%, #252545 100%);
-      color: #E8E8F0;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 20px;
-    }
-    .container { max-width: 420px; width: 100%; }
-    .logo { text-align: center; margin-bottom: 24px; padding-top: 16px; }
-    .logo h1 {
-      font-size: 28px; font-weight: 800;
-      background: linear-gradient(135deg, #6C5CE7, #A29BFE);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    }
-    .logo p { color: #A0A0C0; font-size: 14px; margin-top: 4px; }
-    .customer-badge {
-      background: rgba(108, 92, 231, 0.15); border: 1px solid rgba(108, 92, 231, 0.3);
-      border-radius: 12px; padding: 16px; margin-bottom: 20px; text-align: center;
-    }
-    .customer-badge label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; color: #A0A0C0; }
-    .customer-badge .name { font-size: 20px; font-weight: 700; color: #A29BFE; margin-top: 4px; }
-    .upload-zone {
-      border: 2px dashed rgba(108, 92, 231, 0.3); border-radius: 16px; padding: 36px 20px;
-      text-align: center; cursor: pointer; transition: all 0.3s ease;
-      background: rgba(26, 26, 53, 0.6); margin-bottom: 20px;
-    }
-    .upload-zone:active, .upload-zone.dragging { border-color: #6C5CE7; background: rgba(108, 92, 231, 0.08); transform: scale(0.98); }
-    .upload-zone svg { width: 44px; height: 44px; color: #6C5CE7; margin-bottom: 12px; }
-    .upload-zone h3 { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
-    .upload-zone p { font-size: 13px; color: #A0A0C0; }
-    .file-input { display: none; }
-    .file-list { margin-bottom: 20px; }
-    .file-item {
-      display: flex; align-items: center; gap: 12px; padding: 10px 14px;
-      background: rgba(26, 26, 53, 0.8); border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 10px; margin-bottom: 6px; animation: slideIn 0.3s ease;
-    }
-    @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    .file-item .icon { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
-    .file-item .icon.pdf { background: rgba(255,107,107,0.15); color: #FF6B6B; }
-    .file-item .icon.doc { background: rgba(116,185,255,0.15); color: #74B9FF; }
-    .file-item .icon.xls { background: rgba(0,184,148,0.15); color: #00B894; }
-    .file-item .icon.img { background: rgba(253,203,110,0.15); color: #FDCB6E; }
-    .file-item .icon.other { background: rgba(162,155,254,0.15); color: #A29BFE; }
-    .file-item .info { flex: 1; min-width: 0; }
-    .file-item .info .name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .file-item .info .size { font-size: 11px; color: #A0A0C0; }
-    .file-item .status { font-size: 14px; }
-    .status.pending { color: #FDCB6E; }
-    .status.uploading { color: #74B9FF; animation: pulse 1s infinite; }
-    .status.done { color: #00B894; }
-    .status.error { color: #FF6B6B; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-    .btn {
-      width: 100%; padding: 14px; background: linear-gradient(135deg, #6C5CE7, #5A4BD1);
-      color: white; border: none; border-radius: 12px; font-family: 'Inter', sans-serif;
-      font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.2s ease;
-      box-shadow: 0 4px 15px rgba(108, 92, 231, 0.3);
-    }
-    .btn:active { transform: scale(0.97); }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn.done { background: linear-gradient(135deg, #00B894, #00A885); box-shadow: 0 4px 15px rgba(0,184,148,0.3); }
-    .progress-bar { width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-bottom: 14px; overflow: hidden; display: none; }
-    .progress-bar.active { display: block; }
-    .progress-bar .fill { height: 100%; background: linear-gradient(90deg, #6C5CE7, #A29BFE); border-radius: 2px; transition: width 0.3s ease; width: 0%; }
-    .success-msg { text-align: center; padding: 36px 20px; display: none; }
-    .success-msg.show { display: block; }
-    .success-msg .check { width: 60px; height: 60px; border-radius: 50%; background: rgba(0,184,148,0.15); display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; font-size: 28px; color: #00B894; }
-    .success-msg h2 { font-size: 20px; margin-bottom: 8px; }
-    .success-msg p { color: #A0A0C0; font-size: 14px; }
-    .name-input {
-      width: 100%; padding: 14px 16px; background: rgba(26, 26, 53, 0.8);
-      border: 2px solid rgba(108, 92, 231, 0.3); border-radius: 12px;
-      color: #E8E8F0; font-family: 'Inter', sans-serif; font-size: 15px;
-      outline: none; transition: border-color 0.3s; margin-bottom: 16px;
-    }
-    .name-input:focus { border-color: #6C5CE7; }
-    .name-input::placeholder { color: #6C6C8A; }
-`;
+// ─── HTML Templates ──────────────────────────────────────────
+function getSettingsHTML() {
+  return `
+  <!-- Print Settings -->
+  <div class="settings-panel">
+    <h3>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+      Yazdırma Ayarları
+    </h3>
 
-// ─── Upload page JS (shared) ───────────────────────────
-const UPLOAD_JS = `
-    let selectedFiles = [];
-    const fileInput = document.getElementById('fileInput');
-    const fileList = document.getElementById('fileList');
-    const uploadBtn = document.getElementById('uploadBtn');
-    const dropZone = document.getElementById('dropZone');
+    <!-- Copies -->
+    <div class="setting-row">
+      <label>Kopya Sayısı</label>
+      <div class="stepper">
+        <button onclick="setCopies(globalSettings.copies-1)">−</button>
+        <div class="value" id="copiesVal">1</div>
+        <button onclick="setCopies(globalSettings.copies+1)">+</button>
+      </div>
+    </div>
 
-    fileInput.addEventListener('change', handleFiles);
-    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragging'); });
-    dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('dragging'); });
-    dropZone.addEventListener('drop', (e) => {
-      e.preventDefault(); dropZone.classList.remove('dragging');
-      fileInput.files = e.dataTransfer.files; handleFiles();
-    });
+    <!-- Color -->
+    <div class="setting-row">
+      <label><span id="colorLabel">Renkli</span></label>
+      <div class="toggle active" id="colorToggle" onclick="toggleColor()"><div class="knob"></div></div>
+    </div>
 
-    function handleFiles() {
-      const newFiles = Array.from(fileInput.files);
-      selectedFiles = [...selectedFiles, ...newFiles];
-      renderFileList();
-      uploadBtn.disabled = selectedFiles.length === 0;
-      uploadBtn.textContent = 'Dosyaları Gönder (' + selectedFiles.length + ')';
-    }
+    <!-- Paper Size -->
+    <div class="setting-row">
+      <label>Kağıt Boyutu</label>
+      <select class="custom-select" onchange="setPaperSize(this.value)">
+        <option value="A4">A4</option>
+        <option value="A3">A3</option>
+        <option value="A5">A5</option>
+        <option value="Letter">Letter</option>
+      </select>
+    </div>
 
-    function getFileIconClass(name) {
-      const ext = name.split('.').pop().toLowerCase();
-      if (ext === 'pdf') return 'pdf';
-      if (['doc','docx'].includes(ext)) return 'doc';
-      if (['xls','xlsx'].includes(ext)) return 'xls';
-      if (['png','jpg','jpeg','bmp','tiff'].includes(ext)) return 'img';
-      return 'other';
-    }
+    <!-- Orientation -->
+    <div class="setting-row">
+      <label>Yön</label>
+      <div class="segmented">
+        <button class="orient-btn active" data-val="portrait" onclick="setOrientation('portrait')">Dikey</button>
+        <button class="orient-btn" data-val="landscape" onclick="setOrientation('landscape')">Yatay</button>
+      </div>
+    </div>
 
-    function formatSize(bytes) {
-      if (bytes < 1024) return bytes + ' B';
-      if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-      return (bytes / 1048576).toFixed(1) + ' MB';
-    }
+    <!-- Duplex -->
+    <div class="setting-row">
+      <label>Çift Taraflı</label>
+      <div class="toggle" id="duplexToggle" onclick="toggleDuplex()"><div class="knob"></div></div>
+    </div>
 
-    function renderFileList() {
-      fileList.innerHTML = selectedFiles.map((f, i) =>
-        '<div class="file-item">' +
-        '  <div class="icon ' + getFileIconClass(f.name) + '">' + f.name.split('.').pop().toUpperCase().slice(0,4) + '</div>' +
-        '  <div class="info"><div class="name">' + f.name + '</div><div class="size">' + formatSize(f.size) + '</div></div>' +
-        '  <div class="status pending" id="status-' + i + '">⏳</div>' +
-        '</div>'
-      ).join('');
-    }
+    <!-- Page Range -->
+    <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <label>Sayfa Aralığı</label>
+        <div class="segmented">
+          <button class="range-btn active" data-val="all" onclick="setPageRangeType('all')">Tümü</button>
+          <button class="range-btn" data-val="range" onclick="setPageRangeType('range')">Aralık</button>
+        </div>
+      </div>
+      <div class="page-range" id="pageRangeInputs" style="display:none;">
+        <input type="number" placeholder="İlk" min="1" value="1" onchange="setPageFrom(this.value)" onfocus="this.select()">
+        <span>—</span>
+        <input type="number" placeholder="Son" min="1" value="1" onchange="setPageTo(this.value)" onfocus="this.select()">
+        <span style="font-size:11px;color:#A0A0C0;">sayfa</span>
+      </div>
+    </div>
+  </div>
 
-    async function uploadFiles() {
-      const customerName = getCustomerName();
-      if (!customerName) { alert('Lütfen adınızı girin'); return; }
+  <!-- Finishing Options -->
+  <div class="finishing-panel">
+    <h4>Tamamlama Seçenekleri</h4>
+    <div class="finishing-row">
+      <label>📎 Zımbalama</label>
+      <div class="toggle" id="finish-stapling" onclick="toggleFinishing('stapling')"><div class="knob"></div></div>
+    </div>
+    <div class="finishing-row">
+      <label>🕳️ Delme</label>
+      <div class="toggle" id="finish-punching" onclick="toggleFinishing('punching')"><div class="knob"></div></div>
+    </div>
+    <div class="finishing-row">
+      <label>📚 Ciltleme</label>
+      <div class="toggle" id="finish-binding" onclick="toggleFinishing('binding')"><div class="knob"></div></div>
+    </div>
+  </div>
 
-      uploadBtn.disabled = true;
-      uploadBtn.textContent = 'Yükleniyor...';
-      const progressBar = document.getElementById('progressBar');
-      const progressFill = document.getElementById('progressFill');
-      progressBar.classList.add('active');
-      let completed = 0;
+  <!-- Notes -->
+  <textarea class="notes-area" id="notesInput" placeholder="Özel talimatlarınız... (ör: sadece 3-7. sayfalar, arka arkaya basın, vs.)"></textarea>
 
-      for (let i = 0; i < selectedFiles.length; i++) {
-        const statusEl = document.getElementById('status-' + i);
-        statusEl.className = 'status uploading'; statusEl.textContent = '⬆';
-        try {
-          const formData = new FormData();
-          formData.append('file', selectedFiles[i]);
-          formData.append('customer', customerName);
-          formData.append('session', SESSION_ID);
-          const res = await fetch('/upload', { method: 'POST', body: formData });
-          if (res.ok) { statusEl.className = 'status done'; statusEl.textContent = '✓'; }
-          else throw new Error('fail');
-        } catch { statusEl.className = 'status error'; statusEl.textContent = '✗'; }
-        completed++;
-        progressFill.style.width = ((completed / selectedFiles.length) * 100) + '%';
-      }
-      setTimeout(() => {
-        document.getElementById('uploadArea').style.display = 'none';
-        document.getElementById('successMsg').classList.add('show');
-      }, 500);
-    }
+  <!-- Price Estimate -->
+  <div class="price-display">
+    <div class="label">Tahmini Ücret</div>
+    <div class="amount" id="priceAmount">—</div>
+    <div class="detail" id="priceDetail"></div>
+  </div>`;
+}
 
-    function resetForm() {
-      selectedFiles = [];
-      fileList.innerHTML = '';
-      fileInput.value = '';
-      uploadBtn.disabled = true;
-      uploadBtn.textContent = 'Dosyaları Gönder';
-      document.getElementById('progressBar').classList.remove('active');
-      document.getElementById('progressFill').style.width = '0%';
-      document.getElementById('uploadArea').style.display = 'block';
-      document.getElementById('successMsg').classList.remove('show');
-    }
-`;
+function getStatusTrackerHTML() {
+  return `
+  <div class="status-tracker" id="statusTracker" style="display:none;">
+    <h3>📋 İş Durumu</h3>
+    <div class="status-steps">
+      <div class="status-step">
+        <div class="dot active" id="dot-pending">⏳</div>
+        <div class="label active" id="lbl-pending">Bekliyor</div>
+      </div>
+      <div class="status-step">
+        <div class="dot inactive" id="dot-approved">✓</div>
+        <div class="label" id="lbl-approved">Onaylandı</div>
+      </div>
+      <div class="status-step">
+        <div class="dot inactive" id="dot-printing">🖨</div>
+        <div class="label" id="lbl-printing">Yazdırılıyor</div>
+      </div>
+      <div class="status-step">
+        <div class="dot inactive" id="dot-ready">✅</div>
+        <div class="label" id="lbl-ready">Hazır</div>
+      </div>
+    </div>
+    <div id="readyMessage" style="display:none;text-align:center;margin-top:16px;padding:12px;background:rgba(0,184,148,0.12);border-radius:10px;">
+      <div style="font-size:24px;margin-bottom:6px;">🎉</div>
+      <div style="font-size:14px;font-weight:700;color:#00B894;">Dosyanız hazır!</div>
+      <div style="font-size:12px;color:#A0A0C0;margin-top:4px;">Tezgahtan teslim alabilirsiniz</div>
+    </div>
+  </div>`;
+}
 
-// ─── Customer-specific upload page ─────────────────────
+// ─── Customer-specific upload page ──────────────────────────
 function getCustomerUploadHTML(customerName, sessionId) {
   return `<!DOCTYPE html><html lang="tr"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>PıthCopy — ${customerName}</title>
-<style>${COMMON_STYLES}</style></head><body>
+<style>${MOBILE_STYLES}</style></head><body>
 <div class="container">
   <div class="logo"><h1>PıthCopy</h1><p>Dosya Yükleme</p></div>
   <div class="customer-badge"><label>Müşteri</label><div class="name">${customerName}</div></div>
@@ -222,46 +166,43 @@ function getCustomerUploadHTML(customerName, sessionId) {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       <h3>Dosyalarınızı Yükleyin</h3><p>Dokunun veya dosyaları sürükleyin</p>
     </div>
-    <input type="file" id="fileInput" class="file-input" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.bmp,.tiff">
+    <input type="file" id="fileInput" class="file-input" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.bmp,.tiff,.ppt,.pptx">
     <div class="file-list" id="fileList"></div>
+    ${getSettingsHTML()}
     <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>
     <button class="btn" id="uploadBtn" onclick="uploadFiles()" disabled>Dosyaları Gönder</button>
   </div>
   <div class="success-msg" id="successMsg">
-    <div class="check">✓</div><h2>Yükleme Tamamlandı!</h2><p>Dosyalarınız başarıyla gönderildi.</p>
-    <button class="btn" style="margin-top:20px;" onclick="resetForm()">Yeni Dosya Yükle</button>
+    <div class="check">✓</div>
+    <h2>Yükleme Tamamlandı!</h2>
+    <p>Dosyalarınız başarıyla gönderildi.</p>
+    <div class="customer-badge" style="margin-top:12px;"><label>Sıra Numaranız</label><div class="name" id="queueNumDisplay">—</div></div>
+    ${getStatusTrackerHTML()}
+    <button class="btn secondary" style="margin-top:16px;" onclick="resetForm()">Yeni Dosya Yükle</button>
   </div>
 </div>
 <script>
 const SESSION_ID = '${sessionId}';
 const CUSTOMER = '${customerName}';
 function getCustomerName() { return CUSTOMER; }
-${UPLOAD_JS}
+${MOBILE_JS}
 </script></body></html>`;
 }
 
-// ─── General upload page (asks for name) ───────────────
+// ─── General upload page ────────────────────────────────────
 function getGeneralUploadHTML(sessionId) {
   return `<!DOCTYPE html><html lang="tr"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>PıthCopy — Dosya Gönder</title>
-<style>${COMMON_STYLES}
-.name-step { text-align: center; }
-.name-step h2 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
-.name-step p { font-size: 13px; color: #A0A0C0; margin-bottom: 20px; }
-</style></head><body>
+<style>${MOBILE_STYLES}</style></head><body>
 <div class="container">
   <div class="logo"><h1>PıthCopy</h1><p>Dosya Gönderme</p></div>
-
-  <!-- Step 1: Enter Name -->
   <div id="nameStep" class="name-step">
     <h2>👋 Hoş Geldiniz</h2>
     <p>Dosyalarınızın doğru kişiye ulaşması için adınızı girin</p>
     <input class="name-input" id="senderName" placeholder="Adınızı yazın..." autofocus>
     <button class="btn" id="continueBtn" onclick="goToUpload()">Devam Et</button>
   </div>
-
-  <!-- Step 2: Upload files -->
   <div id="uploadStep" style="display:none;">
     <div class="customer-badge"><label>Gönderen</label><div class="name" id="displayName"></div></div>
     <div id="uploadArea">
@@ -269,23 +210,26 @@ function getGeneralUploadHTML(sessionId) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         <h3>Dosyalarınızı Yükleyin</h3><p>Dokunun veya dosyaları sürükleyin</p>
       </div>
-      <input type="file" id="fileInput" class="file-input" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.bmp,.tiff">
+      <input type="file" id="fileInput" class="file-input" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.bmp,.tiff,.ppt,.pptx">
       <div class="file-list" id="fileList"></div>
+      ${getSettingsHTML()}
       <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>
       <button class="btn" id="uploadBtn" onclick="uploadFiles()" disabled>Dosyaları Gönder</button>
     </div>
     <div class="success-msg" id="successMsg">
-      <div class="check">✓</div><h2>Yükleme Tamamlandı!</h2><p>Dosyalarınız başarıyla gönderildi.</p>
-      <button class="btn" style="margin-top:20px;" onclick="resetForm()">Yeni Dosya Yükle</button>
+      <div class="check">✓</div>
+      <h2>Yükleme Tamamlandı!</h2>
+      <p>Dosyalarınız başarıyla gönderildi.</p>
+      <div class="customer-badge" style="margin-top:12px;"><label>Sıra Numaranız</label><div class="name" id="queueNumDisplay">—</div></div>
+      ${getStatusTrackerHTML()}
+      <button class="btn secondary" style="margin-top:16px;" onclick="resetForm()">Yeni Dosya Yükle</button>
     </div>
   </div>
 </div>
 <script>
 const SESSION_ID = '${sessionId}';
 let senderNameValue = '';
-
 function getCustomerName() { return senderNameValue; }
-
 function goToUpload() {
   const nameInput = document.getElementById('senderName');
   const name = nameInput.value.trim();
@@ -295,17 +239,94 @@ function goToUpload() {
   document.getElementById('nameStep').style.display = 'none';
   document.getElementById('uploadStep').style.display = 'block';
 }
-
 document.getElementById('senderName').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') goToUpload();
   e.target.style.borderColor = 'rgba(108,92,231,0.3)';
 });
-
-${UPLOAD_JS}
+${MOBILE_JS}
 </script></body></html>`;
 }
 
-// ─── Multipart parser ──────────────────────────────────
+// ─── Access code page ───────────────────────────────────────
+function getAccessCodePageHTML() {
+  return `<!DOCTYPE html><html lang="tr"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>PıthCopy — Erişim Kodu</title>
+<style>${MOBILE_STYLES}</style></head><body>
+<div class="container">
+  <div class="logo"><h1>PıthCopy</h1><p>Hızlı Erişim</p></div>
+  <div class="name-step">
+    <h2>🔑 Erişim Kodu</h2>
+    <p>Tezgahtan aldığınız 4 haneli kodu girin</p>
+    <input class="name-input" id="accessCode" placeholder="Kodu girin..." maxlength="4" style="text-align:center;font-size:24px;letter-spacing:8px;" autofocus>
+    <button class="btn" onclick="submitCode()">Giriş</button>
+    <p id="codeError" style="color:#FF6B6B;margin-top:12px;display:none;font-size:13px;">Geçersiz kod. Lütfen tekrar deneyin.</p>
+  </div>
+</div>
+<script>
+document.getElementById('accessCode').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') submitCode();
+});
+async function submitCode() {
+  const code = document.getElementById('accessCode').value.trim();
+  if (code.length !== 4) return;
+  try {
+    const res = await fetch('/api/access-code/' + code);
+    if (res.ok) {
+      const data = await res.json();
+      window.location.href = data.redirectUrl;
+    } else {
+      document.getElementById('codeError').style.display = 'block';
+    }
+  } catch(e) { document.getElementById('codeError').style.display = 'block'; }
+}
+</script></body></html>`;
+}
+
+// ─── Status check page ──────────────────────────────────────
+function getStatusCheckPageHTML() {
+  return `<!DOCTYPE html><html lang="tr"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>PıthCopy — Durum Sorgula</title>
+<style>${MOBILE_STYLES}</style></head><body>
+<div class="container">
+  <div class="logo"><h1>PıthCopy</h1><p>İş Durumu Sorgulama</p></div>
+  <div class="name-step">
+    <h2>📋 Sıra Numarası</h2>
+    <p>Sıra numaranızı girin (ör: 042)</p>
+    <input class="name-input" id="queueInput" placeholder="Sıra numarası..." maxlength="3" style="text-align:center;font-size:24px;letter-spacing:4px;" autofocus>
+    <button class="btn" onclick="checkStatus()">Sorgula</button>
+    <div id="statusResult" style="display:none;margin-top:20px;"></div>
+  </div>
+</div>
+<script>
+document.getElementById('queueInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') checkStatus(); });
+async function checkStatus() {
+  const qn = document.getElementById('queueInput').value.trim();
+  if (!qn) return;
+  try {
+    const res = await fetch('/api/job-status/' + qn);
+    if (res.ok) {
+      const job = await res.json();
+      const statusLabels = { pending:'⏳ Bekliyor', approved:'✓ Onaylandı', printing:'🖨 Yazdırılıyor', ready:'✅ Hazır!', delivered:'📦 Teslim Edildi' };
+      document.getElementById('statusResult').style.display = 'block';
+      document.getElementById('statusResult').innerHTML =
+        '<div class="customer-badge"><label>Sıra #' + job.queueNumber + ' — ' + job.customerName + '</label>' +
+        '<div class="name" style="font-size:16px;">' + (statusLabels[job.status] || job.status) + '</div>' +
+        '<div style="font-size:12px;color:#A0A0C0;margin-top:4px;">' + job.files.length + ' dosya</div></div>';
+    } else {
+      document.getElementById('statusResult').style.display = 'block';
+      document.getElementById('statusResult').innerHTML = '<p style="color:#FF6B6B;text-align:center;">Bu numarada iş bulunamadı.</p>';
+    }
+  } catch(e) {
+    document.getElementById('statusResult').style.display = 'block';
+    document.getElementById('statusResult').innerHTML = '<p style="color:#FF6B6B;text-align:center;">Bağlantı hatası.</p>';
+  }
+}
+</script></body></html>`;
+}
+
+// ─── Multipart parser ───────────────────────────────────────
 function parseMultipart(buffer, boundary) {
   const parts = [];
   const boundaryBuffer = Buffer.from('--' + boundary);
@@ -328,9 +349,20 @@ function parseMultipart(buffer, boundary) {
   return parts;
 }
 
-// ─── Server ────────────────────────────────────────────
-function startUploadServer(customerBasePath, onFileUploaded) {
+// ─── PDF page count util ────────────────────────────────────
+function getPDFPageCount(filePath) {
+  try {
+    const buffer = fs.readFileSync(filePath);
+    const content = buffer.toString('latin1');
+    const matches = content.match(/\/Type[\s]*\/Page[^s]/g);
+    return matches ? matches.length : 1;
+  } catch (e) { return 1; }
+}
+
+// ─── Server ─────────────────────────────────────────────────
+function startUploadServer(customerBasePath, onFileUploaded, jobStore) {
   uploadCallback = onFileUploaded;
+  jobStoreRef = jobStore;
   const PORT = 3333;
   const localIP = getLocalIP();
 
@@ -344,7 +376,7 @@ function startUploadServer(customerBasePath, onFileUploaded) {
 
     const url = new URL(req.url, `http://${req.headers.host}`);
 
-    // ─── General upload page (no customer name) ────
+    // ─── Pages ─────────────────────────────────────
     if (req.method === 'GET' && url.pathname === '/g') {
       const sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -352,7 +384,18 @@ function startUploadServer(customerBasePath, onFileUploaded) {
       return;
     }
 
-    // ─── Customer-specific upload page ─────────────
+    if (req.method === 'GET' && url.pathname === '/code') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(getAccessCodePageHTML());
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/status') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(getStatusCheckPageHTML());
+      return;
+    }
+
     if (req.method === 'GET' && url.pathname.startsWith('/upload/')) {
       const parts = url.pathname.split('/');
       const sessionId = parts[2] || '';
@@ -362,7 +405,7 @@ function startUploadServer(customerBasePath, onFileUploaded) {
       return;
     }
 
-    // ─── Handle file upload ────────────────────────
+    // ─── File Upload ───────────────────────────────
     if (req.method === 'POST' && url.pathname === '/upload') {
       const contentType = req.headers['content-type'] || '';
       const boundaryMatch = contentType.match(/boundary=(.+)/);
@@ -377,16 +420,18 @@ function startUploadServer(customerBasePath, onFileUploaded) {
       req.on('end', () => {
         try {
           const buffer = Buffer.concat(chunks);
-          const parts = parseMultipart(buffer, boundary);
+          const mparts = parseMultipart(buffer, boundary);
 
           let customerName = 'Genel';
           let sessionId = '';
           let fileData = null;
           let fileName = null;
+          let rotation = 0;
 
-          for (const part of parts) {
+          for (const part of mparts) {
             if (part.name === 'customer') customerName = part.data.toString().trim();
             else if (part.name === 'session') sessionId = part.data.toString().trim();
+            else if (part.name === 'rotation') rotation = parseInt(part.data.toString().trim()) || 0;
             else if (part.name === 'file' && part.filename) { fileData = part.data; fileName = part.filename; }
           }
 
@@ -406,11 +451,21 @@ function startUploadServer(customerBasePath, onFileUploaded) {
             const filePath = path.join(customerPath, finalName);
             fs.writeFileSync(filePath, fileData);
 
+            // Get page count for PDFs
+            let pageCount = 1;
+            const ext = path.extname(finalName).toLowerCase();
+            if (ext === '.pdf') {
+              pageCount = getPDFPageCount(filePath);
+            }
+
             if (uploadCallback) {
-              uploadCallback({ customerName, sessionId, fileName: finalName, filePath, fileSize: fileData.length, ext: path.extname(finalName).toLowerCase() });
+              uploadCallback({
+                customerName, sessionId, fileName: finalName, filePath,
+                fileSize: fileData.length, ext, pageCount, rotation,
+              });
             }
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, fileName: finalName }));
+            res.end(JSON.stringify({ success: true, fileName: finalName, pageCount }));
           } else {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'No file' }));
@@ -424,7 +479,144 @@ function startUploadServer(customerBasePath, onFileUploaded) {
       return;
     }
 
-    // ─── Health check ──────────────────────────────
+    // ─── API: Create Job ───────────────────────────
+    if (req.method === 'POST' && url.pathname === '/api/create-job') {
+      let body = '';
+      req.on('data', (d) => body += d);
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          const customerPath = path.join(customerBasePath, data.customerName || 'Genel');
+          const files = (data.fileNames || []).map(name => {
+            const fPath = path.join(customerPath, name);
+            const ext = path.extname(name).toLowerCase();
+            let pageCount = 1;
+            if (ext === '.pdf' && fs.existsSync(fPath)) {
+              pageCount = getPDFPageCount(fPath);
+            }
+            let size = 0;
+            try { size = fs.statSync(fPath).size; } catch (e) { }
+            return {
+              name, path: fPath, ext, size, pageCount,
+              settings: data.settings || null,
+              pageRange: data.pageRange || null,
+            };
+          });
+
+          if (jobStoreRef) {
+            const job = jobStoreRef.createJob({
+              customerName: data.customerName,
+              files,
+              settings: data.settings,
+              notes: data.notes,
+              finishing: data.finishing,
+            });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ jobId: job.jobId, queueNumber: job.queueNumber, totalPrice: job.totalPrice }));
+          } else {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Job store not available' }));
+          }
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      });
+      return;
+    }
+
+    // ─── API: Price Config ─────────────────────────
+    if (req.method === 'GET' && url.pathname === '/api/price-config') {
+      if (jobStoreRef) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(jobStoreRef.getPriceConfig()));
+      } else {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({}));
+      }
+      return;
+    }
+
+    // ─── API: Job Status by queue number ───────────
+    if (req.method === 'GET' && url.pathname.startsWith('/api/job-status/')) {
+      const qn = url.pathname.split('/').pop();
+      if (jobStoreRef) {
+        const job = jobStoreRef.getJobByQueueNumber(qn);
+        if (job) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(job));
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Not found' }));
+        }
+      } else {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Not available' }));
+      }
+      return;
+    }
+
+    // ─── API: SSE ──────────────────────────────────
+    if (req.method === 'GET' && url.pathname === '/api/sse') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      });
+      const clientId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      if (jobStoreRef) {
+        jobStoreRef.addSSEClient(clientId, res);
+        req.on('close', () => jobStoreRef.removeSSEClient(clientId));
+      }
+      return;
+    }
+
+    // ─── API: Access Code ──────────────────────────
+    if (req.method === 'GET' && url.pathname.startsWith('/api/access-code/')) {
+      const code = url.pathname.split('/').pop();
+      if (jobStoreRef) {
+        const codeInfo = jobStoreRef.getAccessCode(code);
+        if (codeInfo) {
+          const sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+          let redirectUrl;
+          if (codeInfo.customerName) {
+            redirectUrl = `/upload/${sessionId}/${encodeURIComponent(codeInfo.customerName)}`;
+          } else {
+            redirectUrl = '/g';
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ redirectUrl }));
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid code' }));
+        }
+      } else {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Not available' }));
+      }
+      return;
+    }
+
+    // ─── API: Serve file thumbnail ─────────────────
+    if (req.method === 'GET' && url.pathname.startsWith('/api/thumb/')) {
+      const filePath = decodeURIComponent(url.pathname.replace('/api/thumb/', ''));
+      const fullPath = path.join(customerBasePath, filePath);
+      if (fs.existsSync(fullPath)) {
+        const ext = path.extname(fullPath).toLowerCase();
+        const mimeTypes = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.bmp': 'image/bmp', '.gif': 'image/gif', '.webp': 'image/webp' };
+        if (mimeTypes[ext]) {
+          res.writeHead(200, { 'Content-Type': mimeTypes[ext] });
+          fs.createReadStream(fullPath).pipe(res);
+        } else {
+          res.writeHead(404); res.end('Not an image');
+        }
+      } else {
+        res.writeHead(404); res.end('Not found');
+      }
+      return;
+    }
+
+    // ─── Health ────────────────────────────────────
     if (req.method === 'GET' && url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok', ip: localIP, port: PORT }));
@@ -455,19 +647,22 @@ function stopUploadServer() {
 function getUploadURL(customerName) {
   const localIP = getLocalIP();
   const sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  return {
-    url: `http://${localIP}:3333/upload/${sessionId}/${encodeURIComponent(customerName)}`,
-    sessionId,
-    ip: localIP,
-  };
+  return { url: `http://${localIP}:3333/upload/${sessionId}/${encodeURIComponent(customerName)}`, sessionId, ip: localIP };
 }
 
 function getGeneralUploadURL() {
   const localIP = getLocalIP();
-  return {
-    url: `http://${localIP}:3333/g`,
-    ip: localIP,
-  };
+  return { url: `http://${localIP}:3333/g`, ip: localIP };
 }
 
-module.exports = { startUploadServer, stopUploadServer, getUploadURL, getGeneralUploadURL, getLocalIP };
+function getAccessCodeURL() {
+  const localIP = getLocalIP();
+  return { url: `http://${localIP}:3333/code`, ip: localIP };
+}
+
+function getStatusCheckURL() {
+  const localIP = getLocalIP();
+  return { url: `http://${localIP}:3333/status`, ip: localIP };
+}
+
+module.exports = { startUploadServer, stopUploadServer, getUploadURL, getGeneralUploadURL, getAccessCodeURL, getStatusCheckURL, getLocalIP };

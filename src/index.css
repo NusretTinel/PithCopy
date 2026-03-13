@@ -73,13 +73,17 @@
 }
 
 /* ── Reset ────────────────────────────────────── */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   width: 100%;
   overflow: hidden;
@@ -643,7 +647,7 @@ body {
   gap: var(--spacing-md);
 }
 
-.print-settings__row > * {
+.print-settings__row>* {
   flex: 1;
 }
 
@@ -950,18 +954,39 @@ body {
 
 /* ── Animations ──────────────────────────────── */
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.4;
+  }
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes slideIn {
-  from { opacity: 0; transform: translateX(-10px); }
-  to { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .animate-fade-in {
@@ -1016,4 +1041,52 @@ body {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   padding-right: var(--spacing-sm);
+}
+
+/* ── Sidebar Brand ──────────────────────────── */
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-base);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.sidebar__brand-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 800;
+  color: white;
+}
+
+.sidebar__brand-name {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.sidebar__footer {
+  border-top: 1px solid var(--color-border-light);
+  padding: var(--spacing-sm);
+}
+
+/* Nav item as button reset */
+.sidebar__nav-item {
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  font-family: var(--font-family);
+}
+
+/* ── Badge Alert ────────────────────────────── */
+.sidebar__nav-badge--alert {
+  background: var(--color-danger);
+  animation: pulse 2s infinite;
 }
